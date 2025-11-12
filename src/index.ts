@@ -18,8 +18,8 @@ const spawnPromise = async (command: string, args: readonly string[], options: S
       child.stdout?.on('data', (data) => {
         const output = data.toString();
         if (args[1] == 'deploy') {
-          if (/^https(.+?)\.dev$/.test(output.trim())) {
-            resolve(output);
+          if (/https(.+?)\.dev$/.test(output.trim())) {
+            resolve(output.trim());
           }
           return;
         }
@@ -51,8 +51,8 @@ const projectName = await input({
   message: 'Project Name',
   default: 'ignite-json',
   required: true,
-  pattern: /^[\w-]+$/,
-  patternError: 'can not include spaces or special charcters.',
+  pattern: /^[a-zA-Z0-9-]+$/,
+  patternError: 'Ensure the project name is alphanumeric, and contains no spaces or special characters or underscores except dashes.',
   validate: (name) => {
     const projectExists = existsSync(name);
     return projectExists ? `This project name already exist, Use another name or delete [ ${name} ] folder to be able to use it.`: true;
@@ -60,7 +60,7 @@ const projectName = await input({
 });
 
 const JSONFileName = await input({
-  message: 'JSON database file name',
+  message: 'JSON database file path',
   default: 'db.json',
   required: true,
   validate: (name) => {
@@ -80,7 +80,7 @@ await downloadTemplate(
     force: false,
   },
 );
-downloadTemplateSpinner.success();
+downloadTemplateSpinner.success({ text: `ignite-json template downloaded successfully, [ ${projectName} ] directory has been created` });
 
 // Convert json-server database to valid kv database
 const prepareDbSpinner = createSpinner('Prepare Cloudflare Workers KV Database').start();
@@ -123,15 +123,15 @@ let spawnOptions: SpawnOptions = {
 
 const installDepsSpinner = createSpinner('Installing dependencies').start();
 await spawnPromise('npm', ['i'], spawnOptions);
-installDepsSpinner.success();
+installDepsSpinner.success({ text: 'Dependencies Installed' });
 
-const cfLoginSpinner = createSpinner('Cloudflare Login').start();
+const cfLoginSpinner = createSpinner('Cloudflare login').start();
 await spawnPromise('npm', ['run', 'login'], spawnOptions);
-cfLoginSpinner.success();
+cfLoginSpinner.success({ text: 'Successfully loggedin to Cloudflare' });
 
 const KVCreateSpinner = createSpinner(`Create remote KV Database [ ${projectName} ]`).start();
 await spawnPromise('npm', ['run', 'create-db', projectName], spawnOptions);
-KVCreateSpinner.success();
+KVCreateSpinner.success({ text: 'KV Database created successfully' });
 
 const createTypes = createSpinner(`Create types for [ ${projectName} ], to be able to test it localy`).start();
 await spawnPromise('npm', ['run', 'cf-typegen'], spawnOptions);
@@ -139,15 +139,23 @@ createTypes.success();
 
 const pushDataSpinner = createSpinner(`Push data to remote KV Database [ ${projectName} ]`).start();
 await spawnPromise('npm', ['run', 'push-db'], spawnOptions);
-pushDataSpinner.success();
+pushDataSpinner.success({ text: 'KV Database pushed to remote' });
 
 const deployProjectSpinner = createSpinner(`Deploy [ ${projectName} ] to Cloudflare Workers`).start();
-await spawnPromise('npm', ['run', 'deploy', projectName], spawnOptions).then(url => {
-  deployProjectSpinner.success();
-  console.log(`
-    ${pc.bgGreen(pc.white('Awesome! ✨'))}
-    ${pc.bgMagentaBright(pc.white('Your JSON Server is ready 🥳'))}
-    ${pc.greenBright('Link 🔗:')} ${pc.magentaBright(url as any)}`);
+await spawnPromise('npm', ['run', 'deploy', projectName.toLowerCase()], spawnOptions).then(url => {
+  if (url !== undefined) {
+    deployProjectSpinner.success();
+    console.log(`
+      ${pc.bgGreen(pc.white('Awesome! ✨'))}
+      ${pc.bgMagentaBright(pc.white('Your JSON Server is ready 🥳'))}
+      ${pc.greenBright('Link 🔗:')} ${pc.magentaBright(url as any)}`);
+      return;
+    }
+
+    deployProjectSpinner.error({ text: 'Error happend during deployment process.' });
+    console.log(`
+      ${pc.bgRedBright(pc.white('Maybe ignite-json is created but we can not get it\'s URL'))}
+      ${pc.bgCyan('See [ Workers & Pages ] section in you Cloudflare account maybe your project is there.')}`);
 });
 
 exit(0);
