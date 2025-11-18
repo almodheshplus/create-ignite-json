@@ -1,19 +1,27 @@
 {
   "name": "create-ignite-json",
-  "version": "0.0.1",
-  "description": "Create an ignite-json server and deploy it to cloudflare.",
+  "version": "0.0.3-beta",
+  "description": "Create a json server and deploy it to cloudflare.",
   "keywords": [
-    "wrangler",
-    "cloudflare",
-    "json",
     "server",
+    "json",
     "api",
-    "cli"
+    "cloudflare",
+    "wrangler",
+    "json-server"
   ],
   "main": "src/index.ts",
-  "bin": "bin/index.js",
+  "bin": {
+    "create-ignite-json": "bin/index.js",
+    "ignite-json": "bin/index.js"
+  },
+  "types": "bin",
   "type": "module",
+  "files": [
+    "bin"
+  ],
   "scripts": {
+    "dev": "tsc -w",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -21,7 +29,7 @@
     "type": "git",
     "url": "git+https://github.com/almodheshplus/create-ignite-json.git"
   },
-  "author": "Almodhesh Plus <https://github.com/almodheshplus/>",
+  "author": "Almodhesh Plus <https://github.com/almodheshplus>",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/almodheshplus/create-ignite-json/issues"
@@ -33,6 +41,7 @@
   "dependencies": {
     "@bluwy/giget-core": "^0.1.6",
     "@inquirer/prompts": "^7.10.0",
+    "commander": "^14.0.2",
     "nanospinner": "^1.2.2",
     "picocolors": "^1.1.1"
   }
