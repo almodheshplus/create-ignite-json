@@ -1,7 +1,7 @@
 {
   "name": "create-ignite-json",
-  "version": "0.0.3-beta",
-  "description": "Create a json server and deploy it to cloudflare.",
+  "version": "0.0.3",
+  "description": "Create json server and deploy it to cloudflare.",
   "keywords": [
     "server",
     "json",

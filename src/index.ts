@@ -2,7 +2,7 @@
 
 import { downloadTemplate } from '@bluwy/giget-core';
 import { spawn, type SpawnOptions } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from 'node:path';
 import { createSpinner } from 'nanospinner';
 import { input, confirm, select } from '@inquirer/prompts';
@@ -14,10 +14,16 @@ import packageJson  from '../package.json' with { type: 'json' };
 type KvData = { key: string, value: string }[];
 type PackageManager = 'npm' | 'bun' | 'pnpm' | 'yarn';
 
-// define important data vars
+// define data vars
 const knownPackageManagers: PackageManager[] = ['npm', 'bun', 'pnpm', 'yarn'];
-const projectNamePattern = /^[a-zA-Z0-9-]+$/;
-const projectNamePatternError = 'Ensure the project name is alphanumeric, and contains no spaces or special characters or underscores except dashes.';
+const projectNamePattern = /^(?!-)[a-zA-Z0-9-]+(?<!-)$/;
+const errorMessage = {
+  projectNamePattern: 'Project Name must contain only letters, numbers, and dashes, and cannot start or end with a dash.',
+  projectNameAlreadyExist: (name: string) => `Project name already exists. Choose a different name or delete the [ ${name} ] folder.`,
+  noPackageManagerInstalled: 'There is no package managers found!, You must install one',
+  fileNotFound: (filePath: string) => `File [ ${filePath} ] not found`,
+
+}
 
 // define functions
 const checkPackageManagerInstalled = (packageManager: string) => {
@@ -53,14 +59,15 @@ const installedPackageManagers = () => {
   });
 }
 const spawnPromise = async (command: string, args: readonly string[], options: SpawnOptions) => {
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<string | undefined>((resolve, reject) => {
     const child = spawn(command, args, options);
     if (args[0] != 'install' && !['create-db', 'push-db', 'cf-typegen'].some(v => v == args[1])) { // stop unnecessary output
       child.stdout?.on('data', (data) => {
-        const output = data.toString();
+        const output: string = data.toString();
         if (args[1] == 'deploy') {
-          if (/https(.+?)\.dev$/.test(output.trim())) {
-            resolve(output.trim());
+          const urlMatch = output.match(/https.+\.dev/);
+          if (urlMatch) {
+            resolve(urlMatch[0]);
           }
           return;
         }
@@ -79,14 +86,15 @@ const spawnPromise = async (command: string, args: readonly string[], options: S
       reject(`${pc.redBright(`\nUnexpected error happend with [ ${pc.bold(`${command} ${args.join(' ')}`)} ] command`)}\n${pc.yellowBright('Error Details:')}\n${pc.gray(err)}`);
     });
     child.on('close', (code) => {
-      resolve();
+      resolve(undefined);
     });
     child.on('error', (err) => {
       reject(pc.redBright(`\nUnexpected error happend when running [ ${pc.bold(`${command} ${args.join(' ')}`)} ]`));
     });
   });
 }
-const yesNoToBoolean = (answer: string | undefined) => {
+const yesNoToBoolean = (answer: string | boolean | undefined): boolean | undefined => {
+  if (typeof answer == 'boolean') return answer;
   return answer === undefined ? undefined: (answer == 'yes' ? true: false);
 }
 const jsonToKv = (projectName: string, jsonDbPath: string, kvDbPath: string = 'kv.json'): void => {
@@ -115,17 +123,17 @@ program
   .description(packageJson.description)
   .version(packageJson.version);
 program.option('-n, --project-name <string>', 'project name [ used for folder name and KV database name ]', (name) => {
-  // check pattern
-  if (!projectNamePattern.test(name)) throw new InvalidArgumentError(projectNamePatternError);
-  if (existsSync(name)) throw new InvalidArgumentError(`This project name already exist, Use another name or delete [ ${name} ] folder to be able to use it.`);
+  // check project name pattern
+  if (!projectNamePattern.test(name)) throw new InvalidArgumentError(errorMessage.projectNamePattern);
+  if (existsSync(name)) throw new InvalidArgumentError(errorMessage.projectNameAlreadyExist(name));
   return name;
 });
 program.option('-j, --json-db <path>', 'JSON database file path', (filePath) => {
-  if (!existsSync(filePath)) throw new InvalidArgumentError(`File [ ${filePath} ] not found`);
+  if (!existsSync(filePath)) throw new InvalidArgumentError(errorMessage.fileNotFound(filePath));
   return filePath;
 });
 program.addOption(new Option('-i, --install-deps <yes|no>', 'install dependencies automatically').choices(['yes', 'no']).argParser((answer) => {  
-  if (availablePackageManagers.length == 0) throw new InvalidArgumentError('There is no package managers found!, You must install one');
+  if (availablePackageManagers.length == 0) throw new InvalidArgumentError(errorMessage.noPackageManagerInstalled);
   return answer;
 }));
 program.addOption(new Option('--pm, --package-manager <string>', 'package manager to use').choices(availablePackageManagers).implies({ installDeps: true }));
@@ -147,10 +155,10 @@ const projectName = cmdOptions.projectName ?? await input({
   default: 'ignite-json',
   required: true,
   pattern: projectNamePattern,
-  patternError: projectNamePatternError,
+  patternError: errorMessage.projectNamePattern,
   validate: (name) => {
     const projectExists = existsSync(name);
-    return projectExists ? `This project name already exist, Use another name or delete [ ${name} ] folder to be able to use it.`: true;
+    return projectExists ? errorMessage.projectNameAlreadyExist(name): true;
   }
 });
 if (cmdOptions.projectName) console.log(`✔ ${pc.cyan(`Project Name:`)} ${pc.greenBright(cmdOptions.projectName)}`);
@@ -159,9 +167,9 @@ const JSONFileName = cmdOptions.jsonDb ?? await input({
   message: 'JSON database file path',
   default: 'db.json',
   required: true,
-  validate: (name) => {
-    const projectExists = existsSync(name);
-    return projectExists ? true: `File [ ${name} ] not found`;
+  validate: (filePath) => {
+    const projectExists = existsSync(filePath);
+    return projectExists ? true: errorMessage.fileNotFound(filePath);
   }
 });
 if (cmdOptions.jsonDb) console.log(`✔ ${pc.cyan(`JSON database file path:`)} ${pc.greenBright(cmdOptions.jsonDb)}`);
@@ -171,14 +179,15 @@ if (cmdOptions.installDeps) console.log(`✔ ${pc.cyan(`Install dependencies aut
 
 // Ask for package manager to use
 if (askInstallDeps) {
-  if (availablePackageManagers.length == 0) throw new Error('There is no package managers found!, You must install one');
+  if (availablePackageManagers.length == 0) throw new Error(errorMessage.noPackageManagerInstalled);
   chosenPackageManager = cmdOptions.packageManager ?? await select({
-    message: 'Which package manager do you want to use?',
+    message: 'Choose package manager',
     default: chosenPackageManager,
     choices: availablePackageManagers.map(pm => {
       return { name: pm, value: pm };
     })
   });
+  if (cmdOptions.packageManager) console.log(`✔ ${pc.cyan(`Package Manager:`)} ${pc.greenBright(chosenPackageManager)}`);
 }
 
 // Download ignite-json template from guthub
@@ -204,7 +213,7 @@ if (!askInstallDeps) {
 
   ${pc.magentaBright('Run the following commands to deploy ignite-json:')}
   > cd ${projectName}
-  > ${chosenPackageManager} i
+  > ${chosenPackageManager} install
   > ${chosenPackageManager} run login
   > ${chosenPackageManager} run create-db ${projectName}
   > ${chosenPackageManager} run cf-typegen
@@ -252,14 +261,14 @@ await spawnPromise(chosenPackageManager, ['run', 'deploy', projectName.toLowerCa
     console.log(`
       ${pc.bgGreen(pc.white('Awesome! ✨'))}
       ${pc.bgMagentaBright(pc.white('Your JSON Server is ready 🥳'))}
-      ${pc.greenBright('Link 🔗:')} ${pc.magentaBright(url as any)}`);
+      ${pc.greenBright('Link 🔗:')} ${pc.magentaBright(url)}`);
       return;
     }
 
-    deployProjectSpinner.error({ text: 'Error happend during deployment process.' });
+    deployProjectSpinner.warn({ text: 'Error happend during deployment process.' });
     console.log(`
-      ${pc.bgRedBright(pc.white('Maybe ignite-json is created but we can not get it\'s URL'))}
-      ${pc.bgCyan('See [ Workers & Pages ] section in you Cloudflare account maybe your project is there.')}`);
+      ${pc.bgYellowBright(pc.white('⚠ Maybe the JSON Server is deployed but we cannot get it\'s URL'))}
+      ${pc.cyan('Check [ Workers & Pages ] section in Cloudflare dashboard you may find it there.')}`);
 }).catch(catchSpawnError);
 
 process.exit(0);
